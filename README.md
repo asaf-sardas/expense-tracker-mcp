@@ -143,19 +143,6 @@ For a quick manual check there is also `playground.py`, a short smoke script:
 uv run playground.py
 ```
 
-## Roadmap
-
-- [x] Record expenses
-- [x] List expenses by date range
-- [x] Monthly summary by category
-- [x] Delete an expense
-- [ ] Update an expense
-- [x] Monthly budgets, overall and per category
-- [x] Budget warnings when adding an expense
-- [ ] Export a month as CSV
-- [x] pytest suite for models, repositories, services and tools
-- [ ] Evaluation set measuring how reliably Claude picks the right tool
-
 ## Limitations
 
 Single user, local only. Each person runs their own server with their own database file. Supporting multiple users on a shared server would require authentication, a `user_id` on every row, and a database such as PostgreSQL.
