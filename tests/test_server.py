@@ -12,10 +12,11 @@ from mcp_server.expenses_tracker import server
 
 
 @pytest.fixture
-def call(monkeypatch, expense_service):
-    # Tools look up server.expense_service at call time, so swapping it
-    # gives each test its own empty database.
+def call(monkeypatch, expense_service, budget_service):
+    # Tools look up the services on the server module at call time, so
+    # swapping them gives each test its own empty database.
     monkeypatch.setattr(server, "expense_service", expense_service)
+    monkeypatch.setattr(server, "budget_service", budget_service)
 
     def _call(tool, args):
         async def run():
@@ -37,6 +38,9 @@ def test_all_tools_are_registered():
         "list_expenses",
         "summary_by_category",
         "delete_expense",
+        "set_budget",
+        "budget_status",
+        "delete_budget",
     }
 
 
@@ -85,3 +89,47 @@ def test_invalid_month_is_rejected(call):
 def test_deleting_missing_expense_reports_error(call):
     with pytest.raises(ToolError, match="No expense with id 42"):
         call("delete_expense", {"expense_id": 42})
+
+
+def test_budget_flow_warns_then_reports_exceeded(call):
+    today = date.today()
+    expense = {"category": "food", "description": "groceries"}
+
+    call("set_budget", {"budget": {"category": "food", "amount": 100}})
+
+    under = call("new_expense", {"expense": {**expense, "amount": 50}})
+    assert under["budget_alerts"] == []
+
+    warned = call("new_expense", {"expense": {**expense, "amount": 35}})
+    assert [(a["category"], a["level"]) for a in warned["budget_alerts"]] == [
+        ("food", "warning")
+    ]
+
+    over = call("new_expense", {"expense": {**expense, "amount": 20}})
+    assert [(a["category"], a["level"]) for a in over["budget_alerts"]] == [
+        ("food", "exceeded")
+    ]
+
+    [status] = call("budget_status", {"year": today.year, "month": today.month})[
+        "result"
+    ]
+    assert status["spent"] == 105
+    assert status["remaining"] == -5
+    assert status["exceeded"] is True
+
+
+def test_set_budget_over_total_is_rejected(call):
+    call("set_budget", {"budget": {"category": "total", "amount": 1000}})
+    with pytest.raises(ToolError, match="total budget"):
+        call("set_budget", {"budget": {"category": "food", "amount": 1500}})
+
+
+def test_delete_budget(call):
+    call("set_budget", {"budget": {"category": "food", "amount": 100}})
+    call("delete_budget", {"category": "food"})
+    today = date.today()
+    assert call("budget_status", {"year": today.year, "month": today.month})[
+        "result"
+    ] == []
+    with pytest.raises(ToolError, match="No budget for food"):
+        call("delete_budget", {"category": "food"})

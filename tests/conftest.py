@@ -15,6 +15,9 @@ from mcp_server.expenses_tracker.repository.BudgetRepository import (  # noqa: E
 from mcp_server.expenses_tracker.repository.ExpenseRepository import (  # noqa: E402
     ExpenseRepository,
 )
+from mcp_server.expenses_tracker.services.BudgetService import (  # noqa: E402
+    BudgetService,
+)
 from mcp_server.expenses_tracker.services.ExpenseService import (  # noqa: E402
     ExpenseService,
 )
@@ -39,3 +42,8 @@ def budget_repo(db) -> BudgetRepository:
 @pytest.fixture
 def expense_service(expense_repo) -> ExpenseService:
     return ExpenseService(expense_repo)
+
+
+@pytest.fixture
+def budget_service(budget_repo, expense_service) -> BudgetService:
+    return BudgetService(budget_repo, expense_service)
