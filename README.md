@@ -56,8 +56,9 @@ db.py          Database: knows the file path and how to open a transaction
 ```
 src/mcp_server/expenses_tracker/
 ├── server.py          # MCP tools and dependency wiring
+├── config.py          # all settings, with defaults and environment overrides
 ├── db.py              # Database class with a transaction() context manager
-├── parser.py          # shekels <-> agorot conversion
+├── parser.py          # shekels <-> agorot conversion, money formatting
 ├── models/
 │   ├── ExpenseModels.py   # ExpenseIn, Expense, MonthlySummary, Category/Month/Year types
 │   └── BudgetModels.py    # Budget, BudgetStatus, BudgetAlert, SavedExpense
@@ -106,6 +107,15 @@ Then open Claude Code, run `/mcp` to confirm the server is connected, and start 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `EXPENSES_DB` | `~/expenses.db` | Path to the SQLite database file |
+| `EXPENSES_WARNING_PERCENT` | `80` | Budget usage that triggers a `warning` alert |
+| `EXPENSES_EXCEEDED_PERCENT` | `100` | Budget usage that triggers an `exceeded` alert |
+| `EXPENSES_CURRENCY_SYMBOL` | `₪` | Symbol shown before amounts in messages |
+
+All settings live in `config.py`. Invalid values (for example a warning percent that is not below the exceeded percent) stop the server at startup with a clear error. Pass them when connecting the server:
+
+```bash
+claude mcp add expenses -e EXPENSES_WARNING_PERCENT=75 -- uv --directory /path/to/expense-tracker-mcp run python -m mcp_server.expenses_tracker.server
+```
 
 ## Testing
 
@@ -117,6 +127,7 @@ uv run pytest
 
 | File | What it checks |
 | --- | --- |
+| `test_config.py` | Defaults, environment overrides, `~` in paths, invalid values rejected |
 | `test_parser.py` | Shekel ↔ agorot conversion is exact (`0.1 + 0.2 == 0.3`) |
 | `test_models.py` | Validation rejects zero/negative amounts, unknown categories, empty descriptions, future dates |
 | `test_expense_repository.py` | Insert, inclusive and sorted date ranges, delete, delete of a missing id |

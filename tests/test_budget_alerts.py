@@ -176,3 +176,22 @@ def test_total_alert_message(budgets, spend):
     budgets(total=1000)
     [alert] = spend(1200, "travel")
     assert alert.message == "Total budget exceeded: ₪1,200.00 of ₪1,000.00 (120%)."
+
+
+def test_custom_thresholds(budget_repo, expense_service):
+    from mcp_server.expenses_tracker.services.BudgetService import BudgetService
+
+    service = BudgetService(
+        budget_repo, expense_service, warning_percent=50, exceeded_percent=90
+    )
+    service.add_budget(Budget(category="food", amount=100))
+
+    def spend(amount):
+        saved = expense_service.add_expense(
+            ExpenseIn(amount=amount, category="food", description="x", expense_date=OCT)
+        )
+        return levels(service.alerts_for(saved))
+
+    assert spend(49) == []
+    assert spend(1) == [("food", "warning")]  # 50%
+    assert spend(40) == [("food", "exceeded")]  # 90%

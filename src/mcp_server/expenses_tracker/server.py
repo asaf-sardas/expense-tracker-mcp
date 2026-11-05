@@ -1,9 +1,8 @@
-import os
 from datetime import date
-from pathlib import Path
 
 from fastmcp import FastMCP
 
+from .config import settings
 from .db import Database
 from .models.BudgetModels import Budget, BudgetCategory, BudgetStatus, SavedExpense
 from .models.ExpenseModels import Expense, ExpenseIn, Month, MonthlySummary, Year
@@ -24,7 +23,7 @@ mcp = FastMCP(
 
 # Wiring: each layer gets the one below it. BudgetService reads spending
 # through ExpenseService; ExpenseService knows nothing about budgets.
-db = Database(Path(os.environ.get("EXPENSES_DB", Path.home() / "expenses.db")))
+db = Database(settings.db_path)
 expense_service = ExpenseService(ExpenseRepository(db))
 budget_service = BudgetService(BudgetRepository(db), expense_service)
 
