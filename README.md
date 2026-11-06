@@ -7,6 +7,8 @@ An [MCP](https://modelcontextprotocol.io) server that lets Claude record and ana
 - **Record expenses in natural language** — Hebrew or English, with optional dates ("yesterday I paid 120 for a taxi")
 - **List expenses by date range** — every expense is returned with its id
 - **Monthly summary by category** — total spent and a per-category breakdown, in ILS
+- **Monthly budgets** — per category and/or an overall `total`; category budgets can never add up to more than the total
+- **Budget alerts** — adding an expense warns at 80% of a budget and again at 100%
 - **Input validation** — positive amounts only, a fixed set of categories, no future dates; invalid input is rejected with a message Claude can act on
 - **Receipt photos** — in clients that support images, Claude reads the receipt and records the expense with no extra code
 - **Exact money handling** — amounts are stored as integer agorot, so `0.10 + 0.20` is exactly `0.30`
@@ -29,6 +31,11 @@ An [MCP](https://modelcontextprotocol.io) server that lets Claude record and ana
 | `list_expenses` | List expenses between two dates, inclusive, each with its id (dates may be given in either order) |
 | `summary_by_category` | Total spending for a calendar month, broken down by category |
 | `delete_expense` | Delete an expense by id (Claude confirms with you first) |
+| `set_budget` | Create or update a monthly budget for a category or `total` (rejected if categories would exceed the total) |
+| `budget_status` | Limit, spent, remaining and percent used for every budget in a month |
+| `delete_budget` | Remove a budget (Claude confirms with you first) |
+
+`new_expense` also returns `budget_alerts`: a `warning` when the expense's category or the total budget reaches 80% in that month, and `exceeded` at 100%.
 
 Categories: `food`, `transport`, `travel`, `housing`, `subscriptions`, `other`.
 
@@ -49,16 +56,18 @@ db.py          Database: knows the file path and how to open a transaction
 ```
 src/mcp_server/expenses_tracker/
 ├── server.py          # MCP tools and dependency wiring
+├── config.py          # all settings, with defaults and environment overrides
 ├── db.py              # Database class with a transaction() context manager
-├── parser.py          # shekels <-> agorot conversion
+├── parser.py          # shekels <-> agorot conversion, money formatting
 ├── models/
 │   ├── ExpenseModels.py   # ExpenseIn, Expense, MonthlySummary, Category/Month/Year types
-│   └── BudgetModels.py    # Budget (per category or "total")
+│   └── BudgetModels.py    # Budget, BudgetStatus, BudgetAlert, SavedExpense
 ├── repository/
 │   ├── ExpenseRepository.py   # add, between_dates, delete_expense
-│   └── BudgetRepository.py    # add_budget (in progress)
+│   └── BudgetRepository.py    # save_budget, get_budget, get_all_budgets, delete_budget
 └── services/
-    └── ExpenseService.py      # add, monthly summary, date-range listing
+    ├── ExpenseService.py      # add, monthly summary, date-range listing
+    └── BudgetService.py       # total-limit check, monthly status, 80%/100% alerts
 ```
 
 ### Design decisions
@@ -98,6 +107,15 @@ Then open Claude Code, run `/mcp` to confirm the server is connected, and start 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `EXPENSES_DB` | `~/expenses.db` | Path to the SQLite database file |
+| `EXPENSES_WARNING_PERCENT` | `80` | Budget usage that triggers a `warning` alert |
+| `EXPENSES_EXCEEDED_PERCENT` | `100` | Budget usage that triggers an `exceeded` alert |
+| `EXPENSES_CURRENCY_SYMBOL` | `₪` | Symbol shown before amounts in messages |
+
+All settings live in `config.py`. Invalid values (for example a warning percent that is not below the exceeded percent) stop the server at startup with a clear error. Pass them when connecting the server:
+
+```bash
+claude mcp add expenses -e EXPENSES_WARNING_PERCENT=75 -- uv --directory /path/to/expense-tracker-mcp run python -m mcp_server.expenses_tracker.server
+```
 
 ## Testing
 
@@ -109,11 +127,14 @@ uv run pytest
 
 | File | What it checks |
 | --- | --- |
+| `test_config.py` | Defaults, environment overrides, `~` in paths, invalid values rejected |
 | `test_parser.py` | Shekel ↔ agorot conversion is exact (`0.1 + 0.2 == 0.3`) |
 | `test_models.py` | Validation rejects zero/negative amounts, unknown categories, empty descriptions, future dates |
 | `test_expense_repository.py` | Insert, inclusive and sorted date ranges, delete, delete of a missing id |
 | `test_expense_service.py` | Monthly totals per category, month boundaries, leap years, empty months, reversed date ranges |
 | `test_budget_repository.py` | Budgets stored in agorot, setting a budget twice updates it, `total` alongside categories |
+| `test_budget_alerts.py` | Budget status per month, alerts at exactly 80% and 100%, total vs. category alerts, other months ignored, alert messages |
+| `test_budget_service.py` | Category budgets can't add up to more than the `total` budget; rejected changes save nothing and explain why |
 | `test_server.py` | End to end through FastMCP's in-memory client: add → list → summarize → delete, plus rejected inputs |
 
 For a quick manual check there is also `playground.py`, a short smoke script:
@@ -121,19 +142,6 @@ For a quick manual check there is also `playground.py`, a short smoke script:
 ```bash
 uv run playground.py
 ```
-
-## Roadmap
-
-- [x] Record expenses
-- [x] List expenses by date range
-- [x] Monthly summary by category
-- [x] Delete an expense
-- [ ] Update an expense
-- [ ] Monthly budgets, overall and per category *(in progress: `budgets` table, `Budget` model and `BudgetRepository.add_budget` (insert or update) done; service and tools pending)*
-- [ ] Budget warnings when adding an expense
-- [ ] Export a month as CSV
-- [x] pytest suite for models, repositories, services and tools
-- [ ] Evaluation set measuring how reliably Claude picks the right tool
 
 ## Limitations
 
