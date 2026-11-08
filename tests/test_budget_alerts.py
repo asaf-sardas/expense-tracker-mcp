@@ -13,23 +13,24 @@ SEP = date(2025, 9, 15)
 
 
 @pytest.fixture
-def budgets(budget_service):
+def budgets(budget_service, user_id):
     def _set(**amounts):
         for category, amount in amounts.items():
-            budget_service.add_budget(Budget(category=category, amount=amount))
+            budget_service.add_budget(user_id, Budget(category=category, amount=amount))
 
     return _set
 
 
 @pytest.fixture
-def spend(expense_service, budget_service):
+def spend(expense_service, budget_service, user_id):
     """Add an expense and return the alerts it triggers, as the tool does."""
 
     def _spend(amount, category="food", day=OCT):
         saved = expense_service.add_expense(
+            user_id,
             ExpenseIn(amount=amount, category=category, description="x", expense_date=day)
         )
-        return budget_service.alerts_for(saved)
+        return budget_service.alerts_for(user_id, saved)
 
     return _spend
 
@@ -40,57 +41,57 @@ def levels(alerts):
 
 # ---- budget_status ----
 
-def test_status_with_no_budgets_is_empty(budget_service, spend):
+def test_status_with_no_budgets_is_empty(budget_service, spend, user_id):
     spend(50)
-    assert budget_service.budget_status(2025, 10) == []
+    assert budget_service.budget_status(user_id, 2025, 10) == []
 
 
-def test_status_under_budget(budget_service, budgets, spend):
+def test_status_under_budget(budget_service, budgets, spend, user_id):
     budgets(food=100)
     spend(25)
-    [status] = budget_service.budget_status(2025, 10)
+    [status] = budget_service.budget_status(user_id, 2025, 10)
     assert status.category == "food"
     assert (status.limit, status.spent, status.remaining) == (100, 25, 75)
     assert status.percent_used == 25
     assert status.exceeded is False
 
 
-def test_status_over_budget_has_negative_remaining(budget_service, budgets, spend):
+def test_status_over_budget_has_negative_remaining(budget_service, budgets, spend, user_id):
     budgets(food=100)
     spend(120)
-    [status] = budget_service.budget_status(2025, 10)
+    [status] = budget_service.budget_status(user_id, 2025, 10)
     assert status.remaining == -20
     assert status.percent_used == 120
     assert status.exceeded is True
 
 
-def test_status_budget_with_no_spending(budget_service, budgets):
+def test_status_budget_with_no_spending(budget_service, budgets, user_id):
     budgets(travel=500)
-    [status] = budget_service.budget_status(2025, 10)
+    [status] = budget_service.budget_status(user_id, 2025, 10)
     assert (status.spent, status.remaining, status.exceeded) == (0, 500, False)
 
 
-def test_total_status_counts_all_categories(budget_service, budgets, spend):
+def test_total_status_counts_all_categories(budget_service, budgets, spend, user_id):
     budgets(total=1000)
     spend(100, "food")
     spend(250, "transport")
-    [status] = budget_service.budget_status(2025, 10)
+    [status] = budget_service.budget_status(user_id, 2025, 10)
     assert status.spent == 350
 
 
-def test_status_ignores_other_months(budget_service, budgets, spend):
+def test_status_ignores_other_months(budget_service, budgets, spend, user_id):
     budgets(food=100)
     spend(90, day=SEP)
     spend(10, day=OCT)
-    [status] = budget_service.budget_status(2025, 10)
+    [status] = budget_service.budget_status(user_id, 2025, 10)
     assert status.spent == 10
 
 
-def test_status_has_no_float_drift(budget_service, budgets, spend):
+def test_status_has_no_float_drift(budget_service, budgets, spend, user_id):
     budgets(food=0.3)
     spend(0.1)
     spend(0.2)
-    [status] = budget_service.budget_status(2025, 10)
+    [status] = budget_service.budget_status(user_id, 2025, 10)
     assert status.remaining == 0
     assert status.exceeded is True
 
@@ -178,19 +179,20 @@ def test_total_alert_message(budgets, spend):
     assert alert.message == "Total budget exceeded: ₪1,200.00 of ₪1,000.00 (120%)."
 
 
-def test_custom_thresholds(budget_repo, expense_service):
+def test_custom_thresholds(budget_repo, expense_service, user_id):
     from mcp_server.expenses_tracker.services.BudgetService import BudgetService
 
     service = BudgetService(
         budget_repo, expense_service, warning_percent=50, exceeded_percent=90
     )
-    service.add_budget(Budget(category="food", amount=100))
+    service.add_budget(user_id, Budget(category="food", amount=100))
 
     def spend(amount):
         saved = expense_service.add_expense(
+            user_id,
             ExpenseIn(amount=amount, category="food", description="x", expense_date=OCT)
         )
-        return levels(service.alerts_for(saved))
+        return levels(service.alerts_for(user_id, saved))
 
     assert spend(49) == []
     assert spend(1) == [("food", "warning")]  # 50%

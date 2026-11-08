@@ -11,34 +11,35 @@ class BudgetRepository:
     def __init__(self, db: Database):
         self.db = db
 
-    def save_budget(self, budget: Budget) -> Budget:
-        """Create the budget, or update its amount if the category already has one."""
+    def save_budget(self, user_id: str, budget: Budget) -> Budget:
+        """Create the user's budget, or update its amount if this user already
+        has one for the category. Other users' budgets are never touched."""
         with self.db.transaction() as con:
             con.execute(
                 """
-                INSERT INTO budgets (category, amount_agorot)
-                VALUES (?, ?)
-                ON CONFLICT(category) DO UPDATE SET amount_agorot = excluded.amount_agorot
+                INSERT INTO budgets (user_id, category, amount_agorot)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id, category) DO UPDATE SET amount_agorot = excluded.amount_agorot
                 """,
-                (budget.category, to_agorot(budget.amount)),
+                (user_id, budget.category, to_agorot(budget.amount)),
             )
         return budget
 
-    def get_budget(self, category: BudgetCategory) -> Budget | None:
+    def get_budget(self,user_id:str, category: BudgetCategory) -> Budget | None:
         with self.db.transaction() as con:
             row = con.execute(
-                "SELECT * FROM budgets WHERE category = ?", (category,)
+                "SELECT * FROM budgets WHERE category = ? and user_id = ?", (category,user_id,)
             ).fetchone()
         return _to_budget(row) if row else None
 
-    def get_all_budgets(self) -> list[Budget]:
+    def get_all_budgets(self, user_id:str) -> list[Budget]:
         with self.db.transaction() as con:
-            rows = con.execute("SELECT * FROM budgets ORDER BY category").fetchall()
+            rows = con.execute("SELECT * FROM budgets WHERE user_id = ?ORDER BY category",(user_id,)).fetchall()
         return [_to_budget(row) for row in rows]
 
-    def delete_budget(self, category: BudgetCategory) -> BudgetCategory:
+    def delete_budget(self, user_id:str,category: BudgetCategory) -> BudgetCategory:
         with self.db.transaction() as con:
-            cur = con.execute("DELETE FROM budgets WHERE category = ?", (category,))
+            cur = con.execute("DELETE FROM budgets WHERE category = ? AND user_id = ?", (category,user_id,))
             if cur.rowcount == 0:
                 raise ValueError(f"No budget for {category}")
         return category

@@ -1,32 +1,30 @@
-import os
-import tempfile
-from pathlib import Path
+import pytest
 
-# server.py opens the database at import time, so point it at a throwaway
-# file before anything imports it. Tests never touch ~/expenses.db.
-os.environ["EXPENSES_DB"] = str(Path(tempfile.mkdtemp()) / "import.db")
-
-import pytest  # noqa: E402
-
-from mcp_server.expenses_tracker.db import Database  # noqa: E402
-from mcp_server.expenses_tracker.repository.BudgetRepository import (  # noqa: E402
-    BudgetRepository,
-)
-from mcp_server.expenses_tracker.repository.ExpenseRepository import (  # noqa: E402
-    ExpenseRepository,
-)
-from mcp_server.expenses_tracker.services.BudgetService import (  # noqa: E402
-    BudgetService,
-)
-from mcp_server.expenses_tracker.services.ExpenseService import (  # noqa: E402
-    ExpenseService,
-)
+from mcp_server.expenses_tracker.db import Database
+from mcp_server.expenses_tracker.repository.BudgetRepository import BudgetRepository
+from mcp_server.expenses_tracker.repository.ExpenseRepository import ExpenseRepository
+from mcp_server.expenses_tracker.repository.UserRepository import UserRepository
+from mcp_server.expenses_tracker.services.BudgetService import BudgetService
+from mcp_server.expenses_tracker.services.ExpenseService import ExpenseService
 
 
 @pytest.fixture
 def db(tmp_path) -> Database:
     """A fresh, empty database for every test."""
     return Database(tmp_path / "test.db")
+
+
+@pytest.fixture
+def user_id(db) -> str:
+    """The user most tests act as. Its row must exist: expenses and budgets
+    reference users."""
+    return UserRepository(db).ensure_user("alice")
+
+
+@pytest.fixture
+def other_user_id(db) -> str:
+    """A second user, for checking that users never see each other's data."""
+    return UserRepository(db).ensure_user("bob")
 
 
 @pytest.fixture

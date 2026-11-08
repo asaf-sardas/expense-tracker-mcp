@@ -110,6 +110,7 @@ Then open Claude Code, run `/mcp` to confirm the server is connected, and start 
 | `EXPENSES_WARNING_PERCENT` | `80` | Budget usage that triggers a `warning` alert |
 | `EXPENSES_EXCEEDED_PERCENT` | `100` | Budget usage that triggers an `exceeded` alert |
 | `EXPENSES_CURRENCY_SYMBOL` | `₪` | Symbol shown before amounts in messages |
+| `EXPENSES_DEV_USER_ID` | `local` | The user that owns all data in local runs without login (stdio) |
 
 All settings live in `config.py`. Invalid values (for example a warning percent that is not below the exceeded percent) stop the server at startup with a clear error. Pass them when connecting the server:
 
@@ -135,6 +136,8 @@ uv run pytest
 | `test_budget_repository.py` | Budgets stored in agorot, setting a budget twice updates it, `total` alongside categories |
 | `test_budget_alerts.py` | Budget status per month, alerts at exactly 80% and 100%, total vs. category alerts, other months ignored, alert messages |
 | `test_budget_service.py` | Category budgets can't add up to more than the `total` budget; rejected changes save nothing and explain why |
+| `test_user_repository.py` | Creating a user is idempotent |
+| `test_isolation.py` | Users never see, delete, or get limited or alerted by another user's expenses and budgets, from the repositories up to the MCP tools |
 | `test_server.py` | End to end through FastMCP's in-memory client: add → list → summarize → delete, plus rejected inputs |
 
 For a quick manual check there is also `playground.py`, a short smoke script:
@@ -145,7 +148,7 @@ uv run playground.py
 
 ## Limitations
 
-Single user, local only. Each person runs their own server with their own database file. Supporting multiple users on a shared server would require authentication, a `user_id` on every row, and a database such as PostgreSQL.
+Every expense and budget belongs to a user (`user_id`), and every query is filtered by it. Locally there is no login, so all data belongs to `EXPENSES_DEV_USER_ID`. Logging in with OAuth, PostgreSQL, and cloud hosting are the next steps.
 
 ## Tech stack
 

@@ -18,15 +18,16 @@ class ExpenseRepository:
     def __init__(self, db: Database):
         self.db = db
 
-    def add(self, expense: ExpenseIn) -> Expense:
+    def add(self, user_id:str, expense: ExpenseIn) -> Expense:
         with self.db.transaction() as con:
             new_id = con.execute(
                 """
-                INSERT INTO expenses (amount_agorot, description, category, expense_date)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO expenses (amount_agorot, user_id, description, category, expense_date)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     to_agorot(expense.amount),
+                    user_id,
                     expense.description,
                     expense.category,
                     expense.expense_date.isoformat(),
@@ -34,30 +35,34 @@ class ExpenseRepository:
             ).lastrowid
         return Expense(id=new_id, **expense.model_dump())
 
-    def between_dates(self, beginning: date, last: date) -> list[Expense]:
+    def between_dates(self,user_id:str, beginning: date, last: date) -> list[Expense]:
         """Return expenses from beginning to last, both dates included."""
         with self.db.transaction() as con:
             rows = con.execute(
                 """
                 SELECT *
                 FROM expenses as e
-                WHERE e.expense_date BETWEEN ? AND ?
+                WHERE e.expense_date BETWEEN ? AND ? AND e.user_id=?
                 ORDER BY expense_date, id              
                 """,
                 (
                     beginning.isoformat(),
                     last.isoformat(),
+                    user_id,
                 ),
             ).fetchall()
         return [_to_expense(row) for row in rows]
 
-    def delete_expense(self, expense_id: int) -> int:
+    def delete_expense(self,user_id:str, expense_id: int) -> int:
         with self.db.transaction() as con:
             cur = con.execute(
                 """
                             DELETE FROM expenses
-                            WHERE expenses.id=? """,
-                (expense_id,),
+                            WHERE expenses.id=? AND expenses.user_id=? """,
+                (   
+                    expense_id,
+                    user_id,
+                 ),
             )
             if cur.rowcount == 0:
                 raise ValueError(f"No expense with id {expense_id}")
