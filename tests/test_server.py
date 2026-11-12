@@ -13,9 +13,9 @@ from mcp_server.expenses_tracker.server import create_app
 
 
 @pytest.fixture
-def app(tmp_path):
-    """A server built from scratch on a fresh, empty database."""
-    return create_app(load_settings({"EXPENSES_DB": str(tmp_path / "test.db")}))
+def app(db, database_url):
+    """A server built from scratch on the emptied test database."""
+    return create_app(load_settings({"EXPENSES_DATABASE_URL": database_url}))
 
 
 @pytest.fixture
@@ -137,10 +137,10 @@ def test_delete_budget(call):
         call("delete_budget", {"category": "food"})
 
 
-def test_settings_reach_the_services(tmp_path):
+def test_settings_reach_the_services(db, database_url):
     app = create_app(
         load_settings(
-            {"EXPENSES_DB": str(tmp_path / "t.db"), "EXPENSES_CURRENCY_SYMBOL": "$"}
+            {"EXPENSES_DATABASE_URL": database_url, "EXPENSES_CURRENCY_SYMBOL": "$"}
         )
     )
 

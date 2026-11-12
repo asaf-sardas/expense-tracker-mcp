@@ -1,14 +1,13 @@
 import asyncio
-import tempfile
-from pathlib import Path
 
 from fastmcp import Client
 
 from mcp_server.expenses_tracker.config import load_settings
 from mcp_server.expenses_tracker.server import create_app
 
-# Use a throwaway database so the smoke test never touches real data.
-mcp = create_app(load_settings({"EXPENSES_DB": str(Path(tempfile.mkdtemp()) / "smoke.db")}))
+# Runs against the local docker-compose Postgres (never Supabase: .env is not
+# loaded here), as its own "playground" user so it never mixes with other data.
+mcp = create_app(load_settings({"EXPENSES_DEV_USER_ID": "playground"}))
 
 
 async def main():

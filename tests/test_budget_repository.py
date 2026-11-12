@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import text
 
 from mcp_server.expenses_tracker.models.BudgetModels import Budget
 
@@ -7,7 +8,7 @@ def rows(db):
     with db.transaction() as con:
         return {
             r["category"]: r["amount_agorot"]
-            for r in con.execute("SELECT * FROM budgets")
+            for r in con.execute(text("SELECT * FROM budgets")).mappings()
         }
 
 

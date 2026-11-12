@@ -1,6 +1,6 @@
 # Expense Tracker MCP Server
 
-An [MCP](https://modelcontextprotocol.io) server that lets Claude record and analyze personal expenses through natural conversation. Tell Claude "I spent 45 shekels on falafel" or "how much did I spend on food in October?", and it calls the right tool, validates the input, and stores everything locally in SQLite.
+An [MCP](https://modelcontextprotocol.io) server that lets Claude record and analyze personal expenses through natural conversation. Tell Claude "I spent 45 shekels on falafel" or "how much did I spend on food in October?", and it calls the right tool, validates the input, and stores everything in PostgreSQL (local Docker or [Supabase](https://supabase.com)).
 
 ## Features
 
@@ -50,21 +50,24 @@ services/      business logic (month ranges, summaries, rules)
    ↓
 repository/    SQL only, converts rows to models
    ↓
-db.py          Database: knows the file path and how to open a transaction
+db.py          Database: connection pool and how to open a transaction
+   ↓
+alembic/       migrations: the only place the schema is created or changed
 ```
 
 ```
 src/mcp_server/expenses_tracker/
 ├── server.py          # MCP tools and dependency wiring
 ├── config.py          # all settings, with defaults and environment overrides
-├── db.py              # Database class with a transaction() context manager
+├── db.py              # Database: SQLAlchemy engine, transaction(), the expenses_app schema
 ├── parser.py          # shekels <-> agorot conversion, money formatting
 ├── models/
 │   ├── ExpenseModels.py   # ExpenseIn, Expense, MonthlySummary, Category/Month/Year types
 │   └── BudgetModels.py    # Budget, BudgetStatus, BudgetAlert, SavedExpense
 ├── repository/
 │   ├── ExpenseRepository.py   # add, between_dates, delete_expense
-│   └── BudgetRepository.py    # save_budget, get_budget, get_all_budgets, delete_budget
+│   ├── BudgetRepository.py    # save_budget, get_budget, get_all_budgets, delete_budget
+│   └── UserRepository.py      # ensure_user
 └── services/
     ├── ExpenseService.py      # add, monthly summary, date-range listing
     └── BudgetService.py       # total-limit check, monthly status, 80%/100% alerts
@@ -75,17 +78,28 @@ src/mcp_server/expenses_tracker/
 - **Money as integer agorot.** Floats can't represent most decimal amounts exactly (`0.1 + 0.2 == 0.30000000000000004`). Amounts are converted to agorot on the way into the database and back to shekels only for output, through a single pair of helper functions.
 - **Validation at the boundaries.** Pydantic models validate everything Claude sends before any code runs, and repository helpers convert database rows back into models. Inside the system, everything is a validated model.
 - **Layers with injected dependencies.** Repositories receive the `Database`, services receive repositories, and `server.py` builds the chain once at startup. This keeps SQL, logic, and the MCP interface separate and makes each layer testable on its own (for example, testing a service against a fake in-memory repository).
-- **One transaction per operation.** `Database.transaction()` opens a connection, commits on success, rolls back on error, and always closes the connection.
+- **One transaction per operation.** `Database.transaction()` takes a connection from the pool, commits on success, rolls back on error, and always returns the connection.
+- **Every row belongs to a user.** `users`, `expenses` and `budgets` are linked by foreign keys, and every query filters by `user_id`. Deleting a user deletes their data.
+- **Schema only through migrations.** Alembic creates and changes the tables. The test suite builds its schema with the same migrations, so they are tested on every run.
+- **A private schema on Supabase.** Tables live in `expenses_app`, not `public`, so Supabase's auto-generated Data API doesn't expose them. Row-level security is on as a second layer, and the server connects as the table owner, which bypasses it.
 - **Tool descriptions written for the model.** Docstrings and field descriptions tell Claude when to use each tool, what units to use, and rules it can't see in the schema (such as "no future dates").
 
 ## Getting started
 
-Requires [uv](https://docs.astral.sh/uv/).
+Requires [uv](https://docs.astral.sh/uv/) and [Docker](https://www.docker.com/) (for the local database).
 
 ```bash
 git clone <repo-url>
 cd expense-tracker-mcp
 uv sync
+docker compose up -d            # local PostgreSQL on localhost:5432
+uv run alembic upgrade head     # create the tables
+```
+
+To use Supabase instead, put its **Session pooler** connection string in a `.env` file in the project root (it's gitignored), then run `uv run alembic upgrade head` once against it:
+
+```bash
+EXPENSES_DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres
 ```
 
 Run the server directly (it will start and wait for a client):
@@ -106,13 +120,13 @@ Then open Claude Code, run `/mcp` to confirm the server is connected, and start 
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `EXPENSES_DB` | `~/expenses.db` | Path to the SQLite database file |
+| `EXPENSES_DATABASE_URL` | local Docker Postgres | PostgreSQL connection URL (`postgresql://...`) |
 | `EXPENSES_WARNING_PERCENT` | `80` | Budget usage that triggers a `warning` alert |
 | `EXPENSES_EXCEEDED_PERCENT` | `100` | Budget usage that triggers an `exceeded` alert |
 | `EXPENSES_CURRENCY_SYMBOL` | `₪` | Symbol shown before amounts in messages |
 | `EXPENSES_DEV_USER_ID` | `local` | The user that owns all data in local runs without login (stdio) |
 
-All settings live in `config.py`. Invalid values (for example a warning percent that is not below the exceeded percent) stop the server at startup with a clear error. Pass them when connecting the server:
+All settings live in `config.py`. The server and Alembic also read a `.env` file in the working directory; variables set in the environment win over it. Invalid values (for example a warning percent that is not below the exceeded percent) stop the server at startup with a clear error. Pass them when connecting the server:
 
 ```bash
 claude mcp add expenses -e EXPENSES_WARNING_PERCENT=75 -- uv --directory /path/to/expense-tracker-mcp run python -m mcp_server.expenses_tracker.server
@@ -120,15 +134,16 @@ claude mcp add expenses -e EXPENSES_WARNING_PERCENT=75 -- uv --directory /path/t
 
 ## Testing
 
-The pytest suite in `tests/` gives every test its own empty database, so it never touches your real data:
+The pytest suite runs against the `expenses_test` database of the Docker Postgres (or `EXPENSES_TEST_DATABASE_URL`). Each run rebuilds the schema with the migrations, and every test starts with empty tables. The suite refuses to run on a database whose name doesn't end in `_test`, so it can never wipe real data:
 
 ```bash
+docker compose up -d
 uv run pytest
 ```
 
 | File | What it checks |
 | --- | --- |
-| `test_config.py` | Defaults, environment overrides, `~` in paths, invalid values rejected |
+| `test_config.py` | Defaults, environment overrides, database URL normalization, invalid values rejected |
 | `test_parser.py` | Shekel ↔ agorot conversion is exact (`0.1 + 0.2 == 0.3`) |
 | `test_models.py` | Validation rejects zero/negative amounts, unknown categories, empty descriptions, future dates |
 | `test_expense_repository.py` | Insert, inclusive and sorted date ranges, delete, delete of a missing id |
@@ -140,7 +155,7 @@ uv run pytest
 | `test_isolation.py` | Users never see, delete, or get limited or alerted by another user's expenses and budgets, from the repositories up to the MCP tools |
 | `test_server.py` | End to end through FastMCP's in-memory client: add → list → summarize → delete, plus rejected inputs |
 
-For a quick manual check there is also `playground.py`, a short smoke script:
+For a quick manual check there is also `playground.py`, a short smoke script that runs against the local Docker Postgres as a separate `playground` user:
 
 ```bash
 uv run playground.py
@@ -148,8 +163,8 @@ uv run playground.py
 
 ## Limitations
 
-Every expense and budget belongs to a user (`user_id`), and every query is filtered by it. Locally there is no login, so all data belongs to `EXPENSES_DEV_USER_ID`. Logging in with OAuth, PostgreSQL, and cloud hosting are the next steps.
+Every expense and budget belongs to a user (`user_id`), and every query is filtered by it. Locally there is no login, so all data belongs to `EXPENSES_DEV_USER_ID`. Logging in with OAuth and cloud hosting are the next steps.
 
 ## Tech stack
 
-Python · [uv](https://docs.astral.sh/uv/) · [FastMCP](https://gofastmcp.com) · [Pydantic](https://docs.pydantic.dev) · SQLite
+Python · [uv](https://docs.astral.sh/uv/) · [FastMCP](https://gofastmcp.com) · [Pydantic](https://docs.pydantic.dev) · PostgreSQL · [SQLAlchemy](https://www.sqlalchemy.org) · [Alembic](https://alembic.sqlalchemy.org) · Docker · Supabase

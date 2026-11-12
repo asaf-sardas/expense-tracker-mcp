@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from mcp_server.expenses_tracker.config import load_settings
@@ -7,29 +5,39 @@ from mcp_server.expenses_tracker.config import load_settings
 
 def test_defaults_when_nothing_is_set():
     settings = load_settings({})
-    assert settings.db_path == Path.home() / "expenses.db"
+    assert settings.database_url == (
+        "postgresql+psycopg://expenses:expenses@localhost:5432/expenses"
+    )
     assert settings.warning_percent == 80
     assert settings.exceeded_percent == 100
     assert settings.currency_symbol == "₪"
 
 
-def test_environment_overrides_defaults(tmp_path):
+def test_environment_overrides_defaults():
     settings = load_settings(
         {
-            "EXPENSES_DB": str(tmp_path / "mine.db"),
+            "EXPENSES_DATABASE_URL": "postgresql+psycopg://u:p@db.example:5432/x",
             "EXPENSES_WARNING_PERCENT": "70",
             "EXPENSES_EXCEEDED_PERCENT": "90",
             "EXPENSES_CURRENCY_SYMBOL": "$",
         }
     )
-    assert settings.db_path == tmp_path / "mine.db"
+    assert settings.database_url == "postgresql+psycopg://u:p@db.example:5432/x"
     assert (settings.warning_percent, settings.exceeded_percent) == (70, 90)
     assert settings.currency_symbol == "$"
 
 
-def test_home_shortcut_in_db_path_is_expanded():
-    settings = load_settings({"EXPENSES_DB": "~/data/expenses.db"})
-    assert settings.db_path == Path.home() / "data" / "expenses.db"
+@pytest.mark.parametrize("prefix", ["postgresql://", "postgres://"])
+def test_plain_postgres_urls_get_the_psycopg_driver(prefix):
+    # Supabase and most tools print URLs without a driver.
+    settings = load_settings({"EXPENSES_DATABASE_URL": f"{prefix}u:p@host:5432/db"})
+    assert settings.database_url == "postgresql+psycopg://u:p@host:5432/db"
+
+
+def test_non_postgres_url_is_rejected_without_echoing_it():
+    with pytest.raises(ValueError, match="must be a PostgreSQL URL") as error:
+        load_settings({"EXPENSES_DATABASE_URL": "sqlite:///secret-password.db"})
+    assert "secret-password" not in str(error.value)
 
 
 def test_non_number_percent_is_rejected():
