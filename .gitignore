@@ -35,3 +35,6 @@ htmlcov/
 .DS_Store
 Thumbs.db
 desktop.ini
+.mcp.json
+skills-lock.json
+.agents

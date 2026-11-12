@@ -1,9 +1,11 @@
+from sqlalchemy import text
+
 from mcp_server.expenses_tracker.repository.UserRepository import UserRepository
 
 
 def users(db):
     with db.transaction() as con:
-        return [tuple(r) for r in con.execute("SELECT id, email FROM users")]
+        return [tuple(r) for r in con.execute(text("SELECT id, email FROM users"))]
 
 
 def test_ensure_user_creates_the_row(db):

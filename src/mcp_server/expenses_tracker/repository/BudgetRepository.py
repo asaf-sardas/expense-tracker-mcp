@@ -1,3 +1,5 @@
+from sqlalchemy import text
+
 from ..db import Database
 from ..models.BudgetModels import Budget, BudgetCategory
 from ..parser import to_agorot, to_shekels
@@ -16,30 +18,42 @@ class BudgetRepository:
         has one for the category. Other users' budgets are never touched."""
         with self.db.transaction() as con:
             con.execute(
-                """
-                INSERT INTO budgets (user_id, category, amount_agorot)
-                VALUES (?, ?, ?)
-                ON CONFLICT(user_id, category) DO UPDATE SET amount_agorot = excluded.amount_agorot
-                """,
-                (user_id, budget.category, to_agorot(budget.amount)),
+                text("""
+                    INSERT INTO budgets (user_id, category, amount_agorot)
+                    VALUES (:user_id, :category, :amount_agorot)
+                    ON CONFLICT (user_id, category)
+                    DO UPDATE SET amount_agorot = excluded.amount_agorot
+                """),
+                {
+                    "user_id": user_id,
+                    "category": budget.category,
+                    "amount_agorot": to_agorot(budget.amount),
+                },
             )
         return budget
 
-    def get_budget(self,user_id:str, category: BudgetCategory) -> Budget | None:
+    def get_budget(self, user_id: str, category: BudgetCategory) -> Budget | None:
         with self.db.transaction() as con:
             row = con.execute(
-                "SELECT * FROM budgets WHERE category = ? and user_id = ?", (category,user_id,)
-            ).fetchone()
+                text("SELECT * FROM budgets WHERE user_id = :user_id AND category = :category"),
+                {"user_id": user_id, "category": category},
+            ).mappings().first()
         return _to_budget(row) if row else None
 
-    def get_all_budgets(self, user_id:str) -> list[Budget]:
+    def get_all_budgets(self, user_id: str) -> list[Budget]:
         with self.db.transaction() as con:
-            rows = con.execute("SELECT * FROM budgets WHERE user_id = ?ORDER BY category",(user_id,)).fetchall()
+            rows = con.execute(
+                text("SELECT * FROM budgets WHERE user_id = :user_id ORDER BY category"),
+                {"user_id": user_id},
+            ).mappings().all()
         return [_to_budget(row) for row in rows]
 
-    def delete_budget(self, user_id:str,category: BudgetCategory) -> BudgetCategory:
+    def delete_budget(self, user_id: str, category: BudgetCategory) -> BudgetCategory:
         with self.db.transaction() as con:
-            cur = con.execute("DELETE FROM budgets WHERE category = ? AND user_id = ?", (category,user_id,))
-            if cur.rowcount == 0:
+            result = con.execute(
+                text("DELETE FROM budgets WHERE user_id = :user_id AND category = :category"),
+                {"user_id": user_id, "category": category},
+            )
+            if result.rowcount == 0:
                 raise ValueError(f"No budget for {category}")
         return category

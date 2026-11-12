@@ -2,12 +2,12 @@
 user's expenses and budgets. Alice is `user_id`, Bob is `other_user_id`."""
 
 import asyncio
-import sqlite3
 from datetime import date
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
+from sqlalchemy.exc import IntegrityError
 
 from mcp_server.expenses_tracker.config import load_settings
 from mcp_server.expenses_tracker.models.BudgetModels import Budget
@@ -54,7 +54,7 @@ def test_cannot_delete_another_users_budget(budget_repo, user_id, other_user_id)
 
 def test_unknown_user_cannot_save(expense_repo):
     # Foreign key: a user must exist (ensure_user) before saving anything.
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(IntegrityError):
         expense_repo.add("nobody", expense(10))
 
 
@@ -87,12 +87,15 @@ def test_alerts_ignore_another_users_spending(
 
 # ---- end to end through the tools ----
 
-def test_tools_keep_users_apart(tmp_path):
-    """Two servers on the same database file, each acting as a different user,
-    the way two logged-in users will share one database in the cloud."""
-    db_file = str(tmp_path / "shared.db")
-    alice = create_app(load_settings({"EXPENSES_DB": db_file, "EXPENSES_DEV_USER_ID": "alice"}))
-    bob = create_app(load_settings({"EXPENSES_DB": db_file, "EXPENSES_DEV_USER_ID": "bob"}))
+def test_tools_keep_users_apart(db, database_url):
+    """Two servers on the same database, each acting as a different user, the
+    way two logged-in users will share one database in the cloud."""
+    def server_for(user):
+        return create_app(
+            load_settings({"EXPENSES_DATABASE_URL": database_url, "EXPENSES_DEV_USER_ID": user})
+        )
+
+    alice, bob = server_for("alice"), server_for("bob")
     today = date.today()
 
     async def run():

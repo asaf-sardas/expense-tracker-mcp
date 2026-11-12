@@ -1,0 +1,25 @@
+# Local PostgreSQL for development and tests (same major version as Supabase).
+#   docker compose up -d       start it
+#   docker compose down        stop it (data is kept in the pgdata volume)
+#   docker compose down -v     stop it and delete all local data
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: expenses
+      POSTGRES_PASSWORD: expenses
+      POSTGRES_DB: expenses
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on first start: creates the separate database the tests use.
+      - ./docker/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U expenses -d expenses"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

@@ -1,7 +1,9 @@
 from datetime import date
 
+from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_access_token
+from sqlalchemy.exc import ProgrammingError
 
 from .config import Settings, load_settings
 from .db import Database
@@ -27,7 +29,7 @@ def create_app(settings: Settings) -> FastMCP:
     their own instance (for example against a throwaway database)."""
     # Wiring: each layer gets the one below it. BudgetService reads spending
     # through ExpenseService; ExpenseService knows nothing about budgets.
-    db = Database(settings.db_path)
+    db = Database(settings.database_url)
     users = UserRepository(db)
     expense_service = ExpenseService(ExpenseRepository(db))
     budget_service = BudgetService(
@@ -39,7 +41,14 @@ def create_app(settings: Settings) -> FastMCP:
     )
 
     # Local runs have no login, so everything belongs to the dev user.
-    users.ensure_user(settings.dev_user_id)
+    # This is also the first query, so it reports a database without tables.
+    try:
+        users.ensure_user(settings.dev_user_id)
+    except ProgrammingError as e:
+        raise RuntimeError(
+            "The database has no expense tables yet. Create them with: "
+            "uv run alembic upgrade head"
+        ) from e
 
     def current_user_id() -> str:
         """Who is calling. With a login (HTTP + OAuth) it is the token's subject;
@@ -104,6 +113,9 @@ def create_app(settings: Settings) -> FastMCP:
 
 
 def main() -> None:
+    # Settings may come from a .env file in the working directory (for example
+    # EXPENSES_DATABASE_URL); variables already set in the environment win.
+    load_dotenv(override=False)
     create_app(load_settings()).run()
 
 

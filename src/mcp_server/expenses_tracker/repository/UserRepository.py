@@ -1,3 +1,5 @@
+from sqlalchemy import text
+
 from ..db import Database
 
 
@@ -11,7 +13,10 @@ class UserRepository:
         user's first save."""
         with self.db.transaction() as con:
             con.execute(
-                "INSERT OR IGNORE INTO users (id, email) VALUES (?, ?)",
-                (user_id, email),
+                text("""
+                    INSERT INTO users (id, email) VALUES (:id, :email)
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {"id": user_id, "email": email},
             )
         return user_id
