@@ -12,6 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+DEFAULT_WARNING_PERCENT = 80
+DEFAULT_EXCEEDED_PERCENT = 100
+DEFAULT_CURRENCY_SYMBOL = "₪"
+DEFAULT_DEV_USER_ID = "local"
+
+
 @dataclass(frozen=True)
 class Settings:
     db_path: Path
@@ -26,16 +32,22 @@ class Settings:
     currency_symbol: str
     """Shown before amounts in alert and error messages. Env: EXPENSES_CURRENCY_SYMBOL"""
 
+    dev_user_id: str
+    """The user for local runs without login (stdio). Env: EXPENSES_DEV_USER_ID"""
+
 
 def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
     """Read settings from environment variables, falling back to the defaults.
     Raises ValueError at startup if a value is invalid."""
     settings = Settings(
         db_path=Path(env.get("EXPENSES_DB", Path.home() / "expenses.db")).expanduser(),
-        warning_percent=_int(env, "EXPENSES_WARNING_PERCENT", 80),
-        exceeded_percent=_int(env, "EXPENSES_EXCEEDED_PERCENT", 100),
-        currency_symbol=env.get("EXPENSES_CURRENCY_SYMBOL", "₪"),
+        warning_percent=_int(env, "EXPENSES_WARNING_PERCENT", DEFAULT_WARNING_PERCENT),
+        exceeded_percent=_int(env, "EXPENSES_EXCEEDED_PERCENT", DEFAULT_EXCEEDED_PERCENT),
+        currency_symbol=env.get("EXPENSES_CURRENCY_SYMBOL", DEFAULT_CURRENCY_SYMBOL),
+        dev_user_id=env.get("EXPENSES_DEV_USER_ID", DEFAULT_DEV_USER_ID).strip(),
     )
+    if not settings.dev_user_id:
+        raise ValueError("EXPENSES_DEV_USER_ID must not be empty")
     if not 0 < settings.warning_percent < settings.exceeded_percent:
         raise ValueError(
             "EXPENSES_WARNING_PERCENT must be above 0 and below "
@@ -53,6 +65,3 @@ def _int(env: Mapping[str, str], name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         raise ValueError(f"{name} must be a whole number, got {raw!r}") from None
-
-
-settings = load_settings()

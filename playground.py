@@ -1,13 +1,14 @@
 import asyncio
-import os
 import tempfile
 from pathlib import Path
 
-# Use a throwaway database so the smoke test never touches real data.
-os.environ["EXPENSES_DB"] = str(Path(tempfile.mkdtemp()) / "smoke.db")
+from fastmcp import Client
 
-from fastmcp import Client  # noqa: E402
-from mcp_server.expenses_tracker.server import mcp  # noqa: E402
+from mcp_server.expenses_tracker.config import load_settings
+from mcp_server.expenses_tracker.server import create_app
+
+# Use a throwaway database so the smoke test never touches real data.
+mcp = create_app(load_settings({"EXPENSES_DB": str(Path(tempfile.mkdtemp()) / "smoke.db")}))
 
 
 async def main():

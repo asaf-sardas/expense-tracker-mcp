@@ -50,3 +50,14 @@ def test_warning_must_be_above_zero_and_below_exceeded(warning, exceeded):
                 "EXPENSES_EXCEEDED_PERCENT": exceeded,
             }
         )
+
+
+def test_dev_user_defaults_to_local_and_can_be_overridden():
+    assert load_settings({}).dev_user_id == "local"
+    assert load_settings({"EXPENSES_DEV_USER_ID": "asaf"}).dev_user_id == "asaf"
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_empty_dev_user_is_rejected(value):
+    with pytest.raises(ValueError, match="EXPENSES_DEV_USER_ID must not be empty"):
+        load_settings({"EXPENSES_DEV_USER_ID": value})

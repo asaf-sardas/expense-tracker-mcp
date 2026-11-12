@@ -8,19 +8,21 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from mcp_server.expenses_tracker import server
+from mcp_server.expenses_tracker.config import load_settings
+from mcp_server.expenses_tracker.server import create_app
 
 
 @pytest.fixture
-def call(monkeypatch, expense_service, budget_service):
-    # Tools look up the services on the server module at call time, so
-    # swapping them gives each test its own empty database.
-    monkeypatch.setattr(server, "expense_service", expense_service)
-    monkeypatch.setattr(server, "budget_service", budget_service)
+def app(tmp_path):
+    """A server built from scratch on a fresh, empty database."""
+    return create_app(load_settings({"EXPENSES_DB": str(tmp_path / "test.db")}))
 
+
+@pytest.fixture
+def call(app):
     def _call(tool, args):
         async def run():
-            async with Client(server.mcp) as client:
+            async with Client(app) as client:
                 return await client.call_tool(tool, args)
 
         return asyncio.run(run()).structured_content
@@ -28,9 +30,9 @@ def call(monkeypatch, expense_service, budget_service):
     return _call
 
 
-def test_all_tools_are_registered():
+def test_all_tools_are_registered(app):
     async def run():
-        async with Client(server.mcp) as client:
+        async with Client(app) as client:
             return {t.name for t in await client.list_tools()}
 
     assert asyncio.run(run()) == {
@@ -133,3 +135,23 @@ def test_delete_budget(call):
     ] == []
     with pytest.raises(ToolError, match="No budget for food"):
         call("delete_budget", {"category": "food"})
+
+
+def test_settings_reach_the_services(tmp_path):
+    app = create_app(
+        load_settings(
+            {"EXPENSES_DB": str(tmp_path / "t.db"), "EXPENSES_CURRENCY_SYMBOL": "$"}
+        )
+    )
+
+    async def run():
+        async with Client(app) as client:
+            await client.call_tool(
+                "set_budget", {"budget": {"category": "total", "amount": 100}}
+            )
+            await client.call_tool(
+                "set_budget", {"budget": {"category": "food", "amount": 150}}
+            )
+
+    with pytest.raises(ToolError, match=r"\$150\.00"):
+        asyncio.run(run())
